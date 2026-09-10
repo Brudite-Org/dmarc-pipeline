@@ -28,11 +28,14 @@ logger = logging.getLogger("dmarc.outlook_sync")
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 
-# Search query — broad filter to catch all DMARC reports
-# Graph API uses different syntax than Gmail
-SEARCH_QUERY = os.environ.get(
+# KQL search query — mirrors Gmail's XOGA DMARC query:
+# has:attachment (dmarc OR "aggregate report" OR "Report Domain" OR "authentication report" OR "DMARC Report" OR "dmarc-report")
+DMARC_KQL = os.environ.get(
     "OUTLOOK_QUERY",
-    "hasAttachments eq true"
+    'hasAttachments:true AND ('
+    '"dmarc" OR "aggregate report" OR "Report Domain" OR '
+    '"authentication report" OR "DMARC Report" OR "dmarc-report"'
+    ')'
 )
 
 # Backfill: how many days to scan when connecting a new account
@@ -64,28 +67,23 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
     account_id = account.get("id")
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # Build search URL with filter
-        # Graph API: $filter for hasAttachments, $search for content
         messages_url = f"{GRAPH_API_BASE}/me/messages"
 
-        # Build filter — look for emails with attachments
-        # We can't search subject as flexibly as Gmail, so we filter broadly
-        # and rely on content detection
-        # Note: Exchange rejects $orderby on receivedDateTime with any $filter — InefficientFilter
-        # We sort client-side instead
+        # Use $search (KQL) to find DMARC-related emails — mirrors Gmail's DMARC query.
+        # hasAttachments is included in the KQL string itself, so $filter is not needed
+        # for the non-backfill case.
         params = {
-            "$filter": "hasAttachments eq true",
+            "$search": DMARC_KQL,
             "$top": 50,
             "$select": "id,subject,from,receivedDateTime,hasAttachments",
         }
 
-        # For backfill, add date filter
-        # Note: Exchange rejects $filter with receivedDateTime + $orderby together
+        # For backfill, add a date range filter (Exchange InefficientFilter: cannot combine
+        # $filter on receivedDateTime with $orderby on same field — we don't use $orderby anyway)
         if backfill:
             from datetime import datetime, timedelta, timezone
             cutoff = (datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)).isoformat()
-            params["$filter"] = f"hasAttachments eq true and receivedDateTime ge {cutoff}"
-            params.pop("$orderby", None)  # Exchange: filter+orderby on date = InefficientFilter
+            params["$filter"] = f"receivedDateTime ge {cutoff}"
             mode_label = "backfill"
         else:
             mode_label = "sync"
