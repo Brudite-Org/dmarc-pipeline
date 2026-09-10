@@ -71,7 +71,7 @@ async def outlook_callback(code: str = "", state: str = "", error: str = ""):
 
     try:
         # Exchange code for tokens
-        tokens = exchange_code(code)
+        tokens = await exchange_code(code)
 
         # Extract email from id_token claims
         email = tokens.get("id_token_claims", {}).get("preferred_username", "")
