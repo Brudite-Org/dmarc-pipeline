@@ -142,7 +142,7 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
 
                 if result.is_dmarc_report:
                     # Valid DMARC report — save it
-                    await _save_attachment(filename, file_bytes)
+                    saved_path = await _save_attachment(filename, file_bytes)
                     saved += 1
                     logger.info(
                         "[%s] ✓ DMARC report: %s (confidence: %s, metadata: %d/3)",
@@ -151,6 +151,21 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
                         result.confidence,
                         result.metadata_score,
                     )
+
+                    # Ingest into dmarc_reports/dmarc_records tables
+                    try:
+                        from workers.processor import process_file as _process_file
+                        ingest_result = _process_file(saved_path)
+                        if ingest_result and ingest_result.reports:
+                            logger.info(
+                                "[%s] Ingested %d report(s) into DB",
+                                email,
+                                len(ingest_result.reports),
+                            )
+                        elif ingest_result and ingest_result.is_duplicate:
+                            logger.info("[%s] Report already in DB (duplicate)", email)
+                    except Exception as ingest_exc:
+                        logger.error("[%s] DB ingest failed: %s", email, ingest_exc)
                 else:
                     skipped += 1
                     logger.debug(
@@ -180,7 +195,7 @@ def _find_attachments(payload: dict, results: list[dict]) -> None:
         _find_attachments(part, results)
 
 
-async def _save_attachment(filename: str, data: bytes) -> None:
+async def _save_attachment(filename: str, data: bytes) -> Path:
     """Save attachment to reports directory."""
     reports_dir = settings.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -190,3 +205,4 @@ async def _save_attachment(filename: str, data: bytes) -> None:
     filepath = reports_dir / safe_name
     filepath.write_bytes(data)
     logger.info("Saved: %s", filepath)
+    return filepath
