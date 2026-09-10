@@ -37,10 +37,10 @@ TENANT_ID = os.environ.get("MS_TENANT_ID", "common") or settings.ms_tenant_id
 # Microsoft Graph API scopes — READ ONLY
 SCOPES = [
     "Mail.Read",
-    "User.Read",
-    "offline_access",
-    "openid",
 ]
+
+# OpenID Connect scopes (not passed to Graph API — handled by MSAL internally)
+OIDC_SCOPES = ["openid", "profile", "offline_access"]
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
@@ -78,7 +78,7 @@ def get_authorization_url(state: str | None = None) -> tuple[str, str]:
     auth_state = state or secrets.token_urlsafe(32)
 
     auth_url = app.get_authorization_request_url(
-        scopes=SCOPES,
+        scopes=SCOPES + OIDC_SCOPES,
         state=auth_state,
         redirect_uri=REDIRECT_URI,
         prompt="consent",  # Force consent screen to get refresh token
@@ -97,7 +97,7 @@ async def exchange_code(code: str) -> dict:
 
     result = app.acquire_token_by_authorization_code(
         code=code,
-        scopes=SCOPES,
+        scopes=SCOPES + OIDC_SCOPES,
         redirect_uri=REDIRECT_URI,
     )
 
@@ -132,7 +132,7 @@ async def get_valid_access_token(token_json: dict) -> str:
     if refresh_token:
         result = app.acquire_token_by_refresh_token(
             refresh_token=refresh_token,
-            scopes=SCOPES,
+            scopes=SCOPES + OIDC_SCOPES,
         )
 
         if "access_token" in result:
