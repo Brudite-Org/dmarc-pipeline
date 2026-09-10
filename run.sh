@@ -49,10 +49,37 @@ if [ "${ENABLE_AUTO_SYNC:-true}" = "true" ]; then
   SCHEDULER_PID=$!
 fi
 
+# ── Schedule daily Outlook sync (cron-friendly entry point) ──────────────────
+# Uncomment the line below if you want a daily scheduled sync via cron instead
+# of relying on the continuous scheduler above:
+# 0 6 * * * cd /path/to/dmarc_pipeline && python -m automation.daily_outlook --notify
+#
+# For run.sh users: set ENABLE_DAILY_OUTLOOK=true to schedule a daily sync at 6 AM
+DAILY_OUTLOOK_PID=""
+if [ "${ENABLE_DAILY_OUTLOOK:-false}" = "true" ]; then
+  echo "Scheduling daily Outlook sync at 6:00 AM..."
+  (
+    # Simple daily scheduler — sleep until 6 AM then run every 24h
+    while true; do
+      NOW=$(date +%s)
+      TARGET=$(date -j -f "%H:%M" "06:00" +%s 2>/dev/null || echo $((NOW + 21600)))
+      if [ "$TARGET" -le "$NOW" ]; then
+        TARGET=$((TARGET + 86400))
+      fi
+      SLEEP_SECS=$((TARGET - NOW))
+      sleep "$SLEEP_SECS"
+      echo "[daily-outlook] Running scheduled sync..."
+      python -m automation.daily_outlook --notify || true
+    done
+  ) &
+  DAILY_OUTLOOK_PID=$!
+fi
+
 cleanup() {
   echo "Shutting down..."
   kill "$WATCHER_PID" 2>/dev/null || true
   [ -n "$SCHEDULER_PID" ] && kill "$SCHEDULER_PID" 2>/dev/null || true
+  [ -n "$DAILY_OUTLOOK_PID" ] && kill "$DAILY_OUTLOOK_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

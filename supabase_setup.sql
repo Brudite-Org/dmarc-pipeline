@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS gmail_accounts (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── Outlook accounts table (Microsoft Graph API OAuth) ──────────────────────
+CREATE TABLE IF NOT EXISTS outlook_accounts (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    credentials_json JSONB DEFAULT '{}'::jsonb,
+    token_json JSONB DEFAULT '{}'::jsonb,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_sync TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ── Processed emails table (track what we've checked) ────────────────────────
 CREATE TABLE IF NOT EXISTS processed_emails (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -69,4 +80,6 @@ CREATE INDEX IF NOT EXISTS idx_records_report_id ON dmarc_records(report_id);
 CREATE INDEX IF NOT EXISTS idx_records_source_ip ON dmarc_records(source_ip);
 CREATE INDEX IF NOT EXISTS idx_gmail_accounts_email ON gmail_accounts(email);
 CREATE INDEX IF NOT EXISTS idx_gmail_accounts_active ON gmail_accounts(is_active);
+CREATE INDEX IF NOT EXISTS idx_outlook_accounts_email ON outlook_accounts(email);
+CREATE INDEX IF NOT EXISTS idx_outlook_accounts_active ON outlook_accounts(is_active);
 CREATE INDEX IF NOT EXISTS idx_processed_emails_lookup ON processed_emails(account_id, message_id);

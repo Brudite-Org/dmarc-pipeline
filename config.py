@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     watch_folder: bool = True
     worker_count: int = 2
 
+    # ── Microsoft Outlook (Graph API) ────────────────────────────────────────
+    ms_client_id: str = ""
+    ms_client_secret: str = ""
+    ms_redirect_uri: str = "http://localhost:8000/outlook/callback"
+    ms_tenant_id: str = "common"  # "common" for multi-tenant, or specific tenant ID
+
+    # ── Discord notifications ────────────────────────────────────────────────
+    discord_webhook_url: str = ""
+    discord_enabled: bool = False
+
     # ── Logging ───────────────────────────────────────────────────────────────
     log_level: str = "INFO"
 

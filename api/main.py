@@ -79,7 +79,9 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # ── OAuth routes ───────────────────────────────────────────────────────────────
 
 from api.oauth_routes import router as oauth_router
+from api.outlook_routes import router as outlook_router
 app.include_router(oauth_router)
+app.include_router(outlook_router)
 
 
 # ── Middleware ─────────────────────────────────────────────────────────────────

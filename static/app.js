@@ -321,55 +321,76 @@ $$('.btn').forEach(btn => {
   });
 });
 
-// ── Gmail accounts ─────────────────────────────────────────────────────────────
+// ── Connected accounts (Gmail + Outlook) ──────────────────────────────────────
 
 async function loadAccounts() {
-  try {
-    const accounts = await fetch('/oauth/accounts').then(r => r.json());
-    const container = $('#accounts-list');
+  const container = $('#accounts-list');
 
-    if (accounts.length === 0) {
+  try {
+    const [gmail, outlook] = await Promise.all([
+      fetch('/oauth/accounts').then(r => r.json()).catch(() => []),
+      fetch('/outlook/accounts').then(r => r.json()).catch(() => []),
+    ]);
+
+    const all = [
+      ...gmail.map(a => ({ ...a, type: 'gmail' })),
+      ...outlook.map(a => ({ ...a, type: 'outlook' })),
+    ];
+
+    if (all.length === 0) {
       container.innerHTML = `
         <div style="text-align: center; padding: var(--sp-6);">
           <p style="color: var(--text-muted); margin-bottom: var(--sp-3);">
-            Connect your Gmail to automatically ingest DMARC reports as they arrive.
+            Connect your email to automatically ingest DMARC reports as they arrive.
           </p>
-          <a href="/oauth/start" class="btn">Connect Gmail Account</a>
+          <div style="display: flex; gap: var(--sp-2); justify-content: center;">
+            <a href="/oauth/start" class="btn">+ Connect Gmail</a>
+            <a href="/outlook/start" class="btn">+ Connect Outlook</a>
+          </div>
         </div>`;
       return;
     }
 
     let html = '<div style="display: grid; gap: var(--sp-2);">';
-    for (const acc of accounts) {
+    for (const acc of all) {
+      const icon = acc.type === 'gmail' ? 'G' : 'M';
+      const label = acc.type === 'gmail' ? 'Gmail' : 'Outlook';
+      const syncFn = acc.type === 'gmail' ? 'syncAccount' : 'syncOutlookAccount';
+      const backfillFn = acc.type === 'gmail' ? 'backfillAccount' : 'backfillOutlookAccount';
+      const disconnectFn = acc.type === 'gmail' ? 'disconnectAccount' : 'disconnectOutlookAccount';
       html += `
         <div style="display: flex; align-items: center; justify-content: space-between; padding: var(--sp-3); background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--r-md);">
           <div style="display: flex; align-items: center; gap: var(--sp-3);">
-            <div style="width: 32px; height: 32px; background: var(--surface-3); border-radius: 50%; display: grid; place-items: center; font-size: 14px;">✉</div>
+            <div style="width: 32px; height: 32px; background: var(--surface-3); border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 600;">${icon}</div>
             <div>
               <div style="font-family: var(--font-mono); font-size: 13px; font-weight: 500;">${acc.email}</div>
-              <div style="font-size: 11px; color: var(--text-muted);">${acc.last_sync ? 'Last sync: ' + fmtDate(acc.last_sync) : 'Never synced'}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${label} · ${acc.last_sync ? 'Last sync: ' + fmtDate(acc.last_sync) : 'Never synced'}</div>
             </div>
           </div>
           <div style="display: flex; gap: var(--sp-2);">
-            <button class="btn" style="font-size: 11px; padding: 4px 10px;" onclick="syncAccount(${acc.id})">Sync</button>
-            <button class="btn btn-ghost" style="font-size: 11px; padding: 4px 10px;" onclick="backfillAccount(${acc.id})" title="Scan past 10 days">Backfill</button>
-            <button class="btn btn-ghost" style="font-size: 11px; padding: 4px 10px;" onclick="disconnectAccount(${acc.id})">✕</button>
+            <button class="btn" style="font-size: 11px; padding: 4px 10px;" onclick="${syncFn}(${acc.id})">Sync</button>
+            <button class="btn btn-ghost" style="font-size: 11px; padding: 4px 10px;" onclick="${backfillFn}(${acc.id})" title="Scan past 10 days">Backfill</button>
+            <button class="btn btn-ghost" style="font-size: 11px; padding: 4px 10px;" onclick="${disconnectFn}(${acc.id})">✕</button>
           </div>
         </div>`;
     }
     html += '</div>';
     container.innerHTML = html;
   } catch (e) {
-    // OAuth not configured yet — show connect prompt
-    $('#accounts-list').innerHTML = `
+    container.innerHTML = `
       <div style="text-align: center; padding: var(--sp-6);">
         <p style="color: var(--text-muted); margin-bottom: var(--sp-3);">
-          Connect your Gmail to automatically ingest DMARC reports as they arrive.
+          Connect your email to automatically ingest DMARC reports as they arrive.
         </p>
-        <a href="/oauth/start" class="btn">Connect Gmail Account</a>
+        <div style="display: flex; gap: var(--sp-2); justify-content: center;">
+          <a href="/oauth/start" class="btn">+ Connect Gmail</a>
+          <a href="/outlook/start" class="btn">+ Connect Outlook</a>
+        </div>
       </div>`;
   }
 }
+
+// ── Gmail actions ─────────────────────────────────────────────────────────────
 
 async function syncAccount(id) {
   try {
@@ -396,6 +417,39 @@ async function disconnectAccount(id) {
   if (!confirm('Disconnect this account?')) return;
   try {
     await fetch(`/oauth/accounts/${id}`, { method: 'DELETE' });
+    loadAccounts();
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  }
+}
+
+// ── Outlook actions ───────────────────────────────────────────────────────────
+
+async function syncOutlookAccount(id) {
+  try {
+    await fetch(`/outlook/accounts/${id}/sync`, { method: 'POST' });
+    await Promise.all([loadStats(), loadReports(), loadAccounts()]);
+  } catch (e) {
+    alert('Sync failed: ' + e.message);
+  }
+}
+
+async function backfillOutlookAccount(id) {
+  if (!confirm('Scan past 10 days of emails for DMARC reports? This may take a minute.')) return;
+  try {
+    const res = await fetch(`/outlook/accounts/${id}/sync?backfill=true`, { method: 'POST' });
+    const data = await res.json();
+    alert(`Backfill complete: ${data.reports_synced} report(s) found`);
+    await Promise.all([loadStats(), loadReports(), loadAccounts()]);
+  } catch (e) {
+    alert('Backfill failed: ' + e.message);
+  }
+}
+
+async function disconnectOutlookAccount(id) {
+  if (!confirm('Disconnect this account?')) return;
+  try {
+    await fetch(`/outlook/accounts/${id}`, { method: 'DELETE' });
     loadAccounts();
   } catch (e) {
     alert('Failed: ' + e.message);

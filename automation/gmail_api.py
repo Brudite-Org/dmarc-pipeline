@@ -168,7 +168,7 @@ def fetch_dmarc_emails(service, account_name: str = "unknown") -> list[tuple[str
         logger.info("[%s] Processing: %s (from %s)", account_name, subject, sender)
 
         if "parts" in msg["payload"]:
-            for part in msg["payload"]["parts():
+            for part in msg["payload"]["parts"]:
                 if part.get("filename") and part.get("body", {}).get("attachmentId"):
                     filename = part["filename"]
                     if filename.lower().endswith((".zip", ".xml", ".gz")):

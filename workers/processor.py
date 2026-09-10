@@ -222,6 +222,26 @@ def _persist(
         len(records_data),
         new_id,
     )
+
+    # Trigger post-ingestion hook (Discord notification, etc.)
+    try:
+        from services.notifier_hook import on_report_ingested
+
+        on_report_ingested(
+            new_id,
+            {
+                "report_id": report_id,
+                "domain": domain,
+                "org_name": parsed.metadata.org_name,
+                "date_begin": report_data.get("date_begin"),
+                "date_end": report_data.get("date_end"),
+                "record_count": len(records_data),
+            },
+        )
+    except Exception as hook_exc:
+        # Never fail ingestion because notification failed
+        logger.warning("Post-ingestion hook failed: %s", hook_exc)
+
     return new_id
 
 

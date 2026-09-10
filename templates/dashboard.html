@@ -125,10 +125,13 @@
     <section class="card" id="accounts-section" style="scroll-margin-top: 80px;">
       <div class="card-header">
         <div class="card-title">Connected inboxes</div>
-        <a href="/oauth/start" class="btn" style="font-size: 12px; padding: 6px 14px;">+ Connect Gmail</a>
+        <div style="display: flex; gap: var(--sp-2);">
+          <a href="/oauth/start" class="btn" style="font-size: 12px; padding: 6px 14px;">+ Connect Gmail</a>
+          <a href="/outlook/start" class="btn" style="font-size: 12px; padding: 6px 14px;">+ Connect Outlook</a>
+        </div>
       </div>
       <div id="accounts-list" class="card-body">
-        <p style="color: var(--text-muted); font-size: 13px;">No accounts connected. Click "Connect Gmail" to auto-ingest DMARC reports from your inbox.</p>
+        <p style="color: var(--text-muted); font-size: 13px;">No accounts connected. Click "Connect Gmail" or "Connect Outlook" to auto-ingest DMARC reports from your inbox.</p>
       </div>
     </section>
 
