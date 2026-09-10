@@ -28,14 +28,12 @@ logger = logging.getLogger("dmarc.outlook_sync")
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 
-# KQL search query — mirrors Gmail's XOGA DMARC query:
-# has:attachment (dmarc OR "aggregate report" OR "Report Domain" OR "authentication report" OR "DMARC Report" OR "dmarc-report")
+# KQL text search — mirrors Gmail's XOGA DMARC query terms.
+# Applied via $search, which searches subject + body.
 DMARC_KQL = os.environ.get(
     "OUTLOOK_QUERY",
-    'hasAttachments:true AND ('
     '"dmarc" OR "aggregate report" OR "Report Domain" OR '
     '"authentication report" OR "DMARC Report" OR "dmarc-report"'
-    ')'
 )
 
 # Backfill: how many days to scan when connecting a new account
@@ -69,23 +67,25 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
     async with httpx.AsyncClient(timeout=120.0) as client:
         messages_url = f"{GRAPH_API_BASE}/me/messages"
 
-        # Use $search (KQL) to find DMARC-related emails — mirrors Gmail's DMARC query.
-        # hasAttachments is included in the KQL string itself, so $filter is not needed
-        # for the non-backfill case.
-        params = {
-            "$search": DMARC_KQL,
-            "$top": 50,
-            "$select": "id,subject,from,receivedDateTime,hasAttachments",
-        }
-
-        # For backfill, add a date range filter (Exchange InefficientFilter: cannot combine
-        # $filter on receivedDateTime with $orderby on same field — we don't use $orderby anyway)
+        # $filter = OData property filters, $search = KQL full-text search
+        # Graph API supports both together: $filter for structured constraints, $search for text terms.
         if backfill:
             from datetime import datetime, timedelta, timezone
             cutoff = (datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)).isoformat()
-            params["$filter"] = f"receivedDateTime ge {cutoff}"
+            params = {
+                "$filter": f"hasAttachments eq true and receivedDateTime ge {cutoff}",
+                "$search": DMARC_KQL,
+                "$top": 50,
+                "$select": "id,subject,from,receivedDateTime,hasAttachments",
+            }
             mode_label = "backfill"
         else:
+            params = {
+                "$filter": "hasAttachments eq true",
+                "$search": DMARC_KQL,
+                "$top": 50,
+                "$select": "id,subject,from,receivedDateTime,hasAttachments",
+            }
             mode_label = "sync"
 
         response = await client.get(messages_url, headers=headers, params=params)
