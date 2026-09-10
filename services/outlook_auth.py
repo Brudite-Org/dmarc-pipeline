@@ -29,10 +29,10 @@ logger = logging.getLogger("dmarc.outlook_auth")
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-CLIENT_ID = os.environ.get("MS_CLIENT_ID", "") or settings.ms_client_id
-CLIENT_SECRET = os.environ.get("MS_CLIENT_SECRET", "") or settings.ms_client_secret
-REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "") or settings.ms_redirect_uri
-TENANT_ID = os.environ.get("MS_TENANT_ID", "common") or settings.ms_tenant_id
+CLIENT_ID = settings.ms_client_id
+CLIENT_SECRET = settings.ms_client_secret
+REDIRECT_URI = settings.ms_redirect_uri
+TENANT_ID = settings.ms_tenant_id
 
 # Microsoft Graph API scopes — READ ONLY
 # Note: MSAL does NOT accept openid/profile/offline_access as user-provided scopes.
