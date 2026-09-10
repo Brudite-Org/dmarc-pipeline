@@ -35,13 +35,10 @@ REDIRECT_URI = os.environ.get("MS_REDIRECT_URI", "") or settings.ms_redirect_uri
 TENANT_ID = os.environ.get("MS_TENANT_ID", "common") or settings.ms_tenant_id
 
 # Microsoft Graph API scopes — READ ONLY
-GRAPH_SCOPES = ["https://graph.microsoft.com/Mail.Read"]
-
-# OpenID Connect scopes (needed for token issuance, handled by MSAL)
-OIDC_SCOPES = ["openid", "profile", "offline_access"]
-
-# Full scope list for OAuth flow
-SCOPES = GRAPH_SCOPES + OIDC_SCOPES
+# Note: MSAL does NOT accept openid/profile/offline_access as user-provided scopes.
+# These are automatically included by MSAL when using the authorization code flow
+# with a confidential client. Only Graph API scopes should be passed in the scopes parameter.
+SCOPES = ["https://graph.microsoft.com/Mail.Read"]
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
