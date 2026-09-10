@@ -39,6 +39,7 @@ SCOPES = [
     "Mail.Read",
     "User.Read",
     "offline_access",
+    "openid",
 ]
 
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
