@@ -75,13 +75,18 @@ def get_authorization_url(state: str | None = None) -> tuple[str, str]:
 
     auth_state = state or secrets.token_urlsafe(32)
 
+    logger.info(
+        "Building auth URL: client_id=%s, authority=%s, redirect_uri=%s, scopes=%s",
+        CLIENT_ID, AUTHORITY, REDIRECT_URI, SCOPES,
+    )
+
     auth_url = app.get_authorization_request_url(
         scopes=SCOPES,
         state=auth_state,
         redirect_uri=REDIRECT_URI,
-        prompt="consent",  # Force consent screen to get refresh token
     )
 
+    logger.info("Auth URL: %s", auth_url)
     return auth_url, auth_state
 
 
