@@ -79,10 +79,12 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
         }
 
         # For backfill, add date filter
+        # Note: Exchange rejects $filter with receivedDateTime + $orderby together
         if backfill:
             from datetime import datetime, timedelta, timezone
             cutoff = (datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)).isoformat()
             params["$filter"] = f"hasAttachments eq true and receivedDateTime ge {cutoff}"
+            params.pop("$orderby", None)  # Exchange: filter+orderby on date = InefficientFilter
             mode_label = "backfill"
         else:
             mode_label = "sync"
