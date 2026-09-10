@@ -24,6 +24,7 @@ from models.accounts import (
     list_outlook_accounts,
     update_sync_time,
     update_token,
+    update_outlook_token,
     update_outlook_sync_time,
 )
 from models.processed_emails import get_processed_count
@@ -93,8 +94,8 @@ async def sync_all_accounts() -> dict:
                 if token_json:
                     # Get valid access token (auto-refreshes if needed)
                     try:
-                        new_token = get_valid_access_token(account_id, token_json)
-                        token_json["access_token"] = new_token
+                        await get_valid_access_token(token_json)
+                        update_outlook_token(account_id, token_json)
                     except Exception as token_exc:
                         logger.warning(
                             "[%s] Token refresh failed: %s", email, token_exc

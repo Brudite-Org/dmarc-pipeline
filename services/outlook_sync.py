@@ -71,11 +71,12 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
         # Build filter — look for emails with attachments
         # We can't search subject as flexibly as Gmail, so we filter broadly
         # and rely on content detection
+        # Note: Exchange rejects $orderby on receivedDateTime with any $filter — InefficientFilter
+        # We sort client-side instead
         params = {
             "$filter": "hasAttachments eq true",
             "$top": 50,
             "$select": "id,subject,from,receivedDateTime,hasAttachments",
-            "$orderby": "receivedDateTime desc",
         }
 
         # For backfill, add date filter
