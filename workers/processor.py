@@ -21,6 +21,7 @@ import aiofiles
 from config import settings
 from models import insert, select
 from parsers.dmarc_xml import DmarcReport as ParsedReport, parse_dmarc_xml
+from services.dmarc_detector import verify_xml_content
 
 logger = logging.getLogger("dmarc.processor")
 
@@ -83,6 +84,17 @@ def process_file(path: Path) -> IngestResult | None:
 
     for xml_bytes, xml_name in xml_entries:
         result.extracted_files.append(xml_name)
+
+        # ── CONTENT-FIRST GATE (Layer 4 — the only hard gate) ────────────
+        # parse_dmarc_xml() is intentionally lenient (it never raises for
+        # well-formed XML that simply isn't a DMARC report), so every entry
+        # must independently prove it's a genuine DMARC aggregate report
+        # before we persist anything or fire a Discord notification.
+        if not verify_xml_content(xml_bytes):
+            logger.warning("Not a valid DMARC aggregate report, skipping: %s", xml_name)
+            result.failed.append(xml_name)
+            continue
+
         try:
             parsed: ParsedReport = parse_dmarc_xml(xml_name, xml_bytes)
         except ValueError as exc:
@@ -99,6 +111,11 @@ def process_file(path: Path) -> IngestResult | None:
                 result.records_by_report[report_id] = records
         else:
             result.skipped.append(parsed.metadata.report_id or xml_name)
+
+    # No entry in this archive was a genuine DMARC report — quarantine it so
+    # the watcher/backfill don't keep re-scanning a file that will never pass.
+    if not result.reports and not result.skipped and result.failed:
+        _quarantine(path)
 
     return result
 
