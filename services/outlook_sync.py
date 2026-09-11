@@ -28,14 +28,6 @@ logger = logging.getLogger("dmarc.outlook_sync")
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 
-# KQL text search — mirrors Gmail's XOGA DMARC query terms.
-# Applied via $search, which searches subject + body.
-DMARC_KQL = os.environ.get(
-    "OUTLOOK_QUERY",
-    '"dmarc" OR "aggregate report" OR "Report Domain" OR '
-    '"authentication report" OR "DMARC Report" OR "dmarc-report"'
-)
-
 # Backfill: how many days to scan when connecting a new account
 BACKFILL_DAYS = int(os.environ.get("OUTLOOK_BACKFILL_DAYS", "30"))
 
@@ -67,14 +59,16 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
     async with httpx.AsyncClient(timeout=120.0) as client:
         messages_url = f"{GRAPH_API_BASE}/me/messages"
 
-        # $filter = OData property filters, $search = KQL full-text search
-        # Graph API supports both together: $filter for structured constraints, $search for text terms.
+        # Content-first detection: fetch ALL emails with attachments, then verify
+        # attachment content using dmarc_detector (Layer 4 ground truth check).
+        # We deliberately omit $search (KQL) because DMARC terms in subject/body
+        # are unreliable — reports can arrive with generic subjects. $filter handles
+        # the structural constraints only.
         if backfill:
             from datetime import datetime, timedelta, timezone
             cutoff = (datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)).isoformat()
             params = {
                 "$filter": f"hasAttachments eq true and receivedDateTime ge {cutoff}",
-                "$search": DMARC_KQL,
                 "$top": 50,
                 "$select": "id,subject,from,receivedDateTime,hasAttachments",
             }
@@ -82,7 +76,6 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
         else:
             params = {
                 "$filter": "hasAttachments eq true",
-                "$search": DMARC_KQL,
                 "$top": 50,
                 "$select": "id,subject,from,receivedDateTime,hasAttachments",
             }
