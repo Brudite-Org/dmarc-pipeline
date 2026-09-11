@@ -22,11 +22,6 @@ watchdog==6.0.0
 # ── Production server ────────────────────────────────────────────────────────
 gunicorn==23.0.0
 
-# ── Email automation (optional) ─────────────────────────────────────────────
-google-api-python-client==2.150.0
-google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.0
-
 # ── Microsoft Outlook (Graph API) ──────────────────────────────────────────
 msal==1.28.0
 
