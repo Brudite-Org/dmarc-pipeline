@@ -21,7 +21,7 @@ from pathlib import Path
 
 from config import settings
 from models.processed_emails import is_processed, mark_processed
-from services.dmarc_detector import detect_dmarc_report
+from services.dmarc_detector import detect_dmarc_report, has_report_container_suffix
 from services.outlook_auth import get_valid_access_token
 
 logger = logging.getLogger("dmarc.outlook_sync")
@@ -122,10 +122,14 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
 
             attachments = att_response.json().get("value", [])
 
-            # Filter to file attachments only (not inline images)
+            # Filter to file attachments only (not inline images), and to
+            # filenames that could possibly be a DMARC report container
+            # (.zip/.xml/.xml.gz/.gz) — skip pdf/png/docx/etc. before
+            # spending CPU decoding and content-verifying them.
             file_attachments = [
                 att for att in attachments
                 if att.get("@odata.type") == "#microsoft.graph.fileAttachment"
+                and has_report_container_suffix(att.get("name", ""))
             ]
 
             if not file_attachments:

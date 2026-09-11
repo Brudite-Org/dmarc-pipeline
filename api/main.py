@@ -35,6 +35,10 @@ from models import (
 )
 from models.schemas import RecordRow, ReportMetadata, StatsSummary, UploadResponse
 from parsers.dmarc_xml import parse_dmarc_xml
+from services.dmarc_detector import (
+    REPORT_CONTAINER_SUFFIXES,
+    has_report_container_suffix,
+)
 from workers.processor import process_file
 
 logger = logging.getLogger("dmarc.api")
@@ -122,13 +126,7 @@ async def dashboard(request: Request):
 
 # ── Upload endpoint ───────────────────────────────────────────────────────────
 
-ALLOWED_SUFFIXES = {".zip", ".xml", ".xml.gz", ".gz"}
 MAX_BYTES = settings.max_upload_size_mb * 1024 * 1024
-
-
-def _is_allowed_filename(filename: str) -> bool:
-    lower = filename.lower()
-    return any(lower.endswith(suffix) for suffix in ALLOWED_SUFFIXES)
 
 
 @app.post("/api/upload", status_code=201)
@@ -137,10 +135,10 @@ def upload_report(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
 
-    if not _is_allowed_filename(file.filename):
+    if not has_report_container_suffix(file.filename):
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_SUFFIXES))}",
+            detail=f"Unsupported file type. Allowed: {', '.join(sorted(REPORT_CONTAINER_SUFFIXES))}",
         )
 
     data = file.file.read()

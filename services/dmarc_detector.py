@@ -124,6 +124,32 @@ def verify_file_content(filepath: Path) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# CHEAP PRE-FILTER — attachment container types (NOT a content gate)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# DMARC aggregate reports are only ever delivered in these container formats
+# (RFC 7489 §7.2.1). This is purely an efficiency filter to avoid downloading
+# and decoding attachments (PDFs, images, docs, etc.) that can never be DMARC
+# reports. It is NOT the source of truth — verify_file_content()/
+# verify_xml_content() (Layer 4, above) is always the real gate applied
+# afterward to anything that passes this filter.
+REPORT_CONTAINER_SUFFIXES = (".xml.gz", ".gz", ".zip", ".xml")
+
+
+def has_report_container_suffix(filename: str) -> bool:
+    """Does this filename look like a possible DMARC report container?
+
+    Cheap, name-only check — used to skip obviously-irrelevant attachments
+    (e.g. invoice.pdf, screenshot.png) before spending a network round-trip
+    or CPU cycles on them. Always followed by real content verification.
+    """
+    if not filename:
+        return False
+    lower = filename.lower()
+    return any(lower.endswith(suffix) for suffix in REPORT_CONTAINER_SUFFIXES)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LAYERS 1-3: METADATA CHECKS (SOFT — CONFIDENCE SCORING ONLY)
 # ═══════════════════════════════════════════════════════════════════════════
 

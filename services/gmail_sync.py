@@ -18,7 +18,7 @@ from pathlib import Path
 
 from config import settings
 from models.processed_emails import is_processed, mark_processed
-from services.dmarc_detector import detect_dmarc_report
+from services.dmarc_detector import detect_dmarc_report, has_report_container_suffix
 from services.oauth import get_valid_access_token
 
 logger = logging.getLogger("dmarc.gmail_sync")
@@ -113,6 +113,15 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             for att_info in attachments:
                 filename = att_info["filename"]
                 att_id = att_info["attachment_id"]
+
+                # Cheap pre-filter: skip anything that can't possibly be a
+                # DMARC report container (pdf/png/docx/etc.) before spending
+                # a network round-trip downloading it.
+                if not has_report_container_suffix(filename):
+                    logger.debug(
+                        "[%s] Skipping non-report attachment: %s", email, filename
+                    )
+                    continue
 
                 # Download attachment
                 att_url = f"{GMAIL_API_BASE}/messages/{msg_id}/attachments/{att_id}"
