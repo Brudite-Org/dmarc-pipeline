@@ -4,7 +4,10 @@ Usage:
     python -m cli watch        # watch the drop folder and ingest on arrival
     python -m cli ingest       # batch-ingest everything in the drop folder once
     python -m cli serve        # run the FastAPI app (same as ``python -m api.main``)
-    python -m cli init-db      # create tables only
+    python -m cli init-db      # print schema setup instructions
+
+Schema is managed via ``supabase_setup.sql`` (run manually in the Supabase
+SQL editor) — there is no programmatic init step against Supabase's REST API.
 """
 
 from __future__ import annotations
@@ -15,7 +18,6 @@ import logging
 import sys
 from pathlib import Path
 
-from models import init_db
 from workers.watcher import WatchFolder
 
 REPORTS_DIR = Path(__file__).resolve().parent / "reports"
@@ -31,7 +33,6 @@ def setup_logging(level: str = "INFO") -> None:
 
 async def cmd_watch(args: argparse.Namespace) -> None:
     setup_logging(args.log_level)
-    await init_db()
     watcher = WatchFolder(args.directory)
     try:
         await watcher.run_forever()
@@ -41,7 +42,6 @@ async def cmd_watch(args: argparse.Namespace) -> None:
 
 async def cmd_ingest(args: argparse.Namespace) -> None:
     setup_logging(args.log_level)
-    await init_db()
     from workers.processor import process_existing_files
 
     count = await process_existing_files(args.directory)
@@ -50,8 +50,11 @@ async def cmd_ingest(args: argparse.Namespace) -> None:
 
 async def cmd_init_db(args: argparse.Namespace) -> None:
     setup_logging(args.log_level)
-    await init_db()
-    print("Database initialised.")
+    print(
+        "Schema is managed via supabase_setup.sql — run it in the "
+        "Supabase SQL editor (Dashboard → SQL Editor → paste & run). "
+        "There is no programmatic init step against the REST API."
+    )
 
 
 def cmd_serve(args: argparse.Namespace) -> None:

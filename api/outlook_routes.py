@@ -22,6 +22,7 @@ from models.accounts import (
     get_outlook_account,
     list_outlook_accounts,
     update_outlook_sync_time,
+    update_outlook_token,
 )
 from services.outlook_auth import exchange_code, get_authorization_url
 
@@ -148,6 +149,10 @@ async def sync_outlook_account(account_id: int, backfill: bool = False):
 
     try:
         count = await sync_account_emails(account, backfill=backfill)
+        # sync_account_emails() may have refreshed (and Microsoft may have
+        # rotated) the token in-memory — persist it or the stored
+        # refresh_token can go stale and break future syncs.
+        update_outlook_token(account_id, account.get("token_json", {}))
         update_outlook_sync_time(account_id, datetime.now(timezone.utc).isoformat())
         return {"status": "ok", "reports_synced": count, "backfill": backfill}
     except Exception as exc:
@@ -169,6 +174,7 @@ async def _trigger_backfill(account_id: int) -> None:
     try:
         logger.info("[%s] Starting Outlook backfill (past 10 days)...", account.get("email"))
         count = await sync_account_emails(account, backfill=True)
+        update_outlook_token(account_id, account.get("token_json", {}))
         update_outlook_sync_time(account_id, datetime.now(timezone.utc).isoformat())
         logger.info("[%s] Outlook backfill complete: %d report(s)", account.get("email"), count)
     except Exception as exc:

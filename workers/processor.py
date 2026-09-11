@@ -126,7 +126,7 @@ async def process_existing_files(directory: Path) -> int:
     count = 0
     for ext in ("*.zip", "*.xml", "*.xml.gz"):
         for path in sorted(directory.glob(ext)):
-            result = await process_file(path)
+            result = process_file(path)
             if result is not None and result.reports:
                 count += len(result.reports)
     return count

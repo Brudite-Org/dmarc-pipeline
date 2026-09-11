@@ -157,6 +157,10 @@ async def sync_account(account_id: int, backfill: bool = False):
 
     try:
         count = await sync_account_emails(account, backfill=backfill)
+        # sync_account_emails() may have refreshed the access token in
+        # memory (account["token_json"] is mutated by reference) — persist
+        # it so the next sync doesn't have to refresh again.
+        update_token(account_id, account.get("token_json", {}))
         update_sync_time(account_id, datetime.now(timezone.utc).isoformat())
         return {"status": "ok", "reports_synced": count, "backfill": backfill}
     except Exception as exc:
@@ -178,6 +182,7 @@ async def _trigger_backfill(account_id: int) -> None:
     try:
         logger.info("[%s] Starting backfill (past 10 days)...", account.get("email"))
         count = await sync_account_emails(account, backfill=True)
+        update_token(account_id, account.get("token_json", {}))
         update_sync_time(account_id, datetime.now(timezone.utc).isoformat())
         logger.info("[%s] Backfill complete: %d report(s)", account.get("email"), count)
     except Exception as exc:

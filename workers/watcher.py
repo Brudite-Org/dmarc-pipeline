@@ -106,7 +106,7 @@ class WatchFolder:
         while True:
             path = await self._queue.get()
             try:
-                await process_file(Path(path))
+                process_file(Path(path))
             except Exception as exc:  # noqa: BLE001 - never let a task die
                 logger.exception("Consumer %d failed on %s: %s", worker_id, path, exc)
             finally:

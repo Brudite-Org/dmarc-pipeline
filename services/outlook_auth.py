@@ -117,19 +117,33 @@ async def exchange_code(code: str) -> dict:
 
 
 async def get_valid_access_token(token_json: dict) -> str:
-    """Get a valid access token, refreshing if necessary.
-
-    Uses MSAL's token cache logic — handles refresh tokens automatically.
+    """Get a valid access token, refreshing only if necessary.
 
     Args:
         token_json: Dict containing access_token, refresh_token, expires_at, etc.
+            Mutated in place on refresh — the caller MUST persist it back
+            (e.g. via ``update_outlook_token()``) after this returns, since
+            Microsoft commonly rotates the refresh_token on every redemption
+            and the stale one may stop working.
 
     Returns:
         Valid access token string.
     """
-    app = _get_msal_app()
+    from datetime import datetime, timedelta, timezone
 
-    # Try to acquire token silently using cached refresh token
+    # If the current access token is still valid (with a safety margin),
+    # reuse it — avoids hitting Microsoft's token endpoint (and rotating
+    # the refresh_token) on every single call.
+    expires_at = token_json.get("expires_at")
+    if expires_at and token_json.get("access_token"):
+        try:
+            expiry = datetime.fromisoformat(expires_at)
+            if datetime.now(timezone.utc) < expiry - timedelta(minutes=2):
+                return token_json["access_token"]
+        except (ValueError, TypeError):
+            pass
+
+    app = _get_msal_app()
     refresh_token = token_json.get("refresh_token")
 
     if refresh_token:
@@ -139,21 +153,20 @@ async def get_valid_access_token(token_json: dict) -> str:
         )
 
         if "access_token" in result:
-            # Update token_json with new token (caller should persist)
+            # Update token_json with new token (caller MUST persist)
             token_json["access_token"] = result["access_token"]
             if "refresh_token" in result:
                 token_json["refresh_token"] = result["refresh_token"]
             # MSAL returns expires_in as seconds from now
             if "expires_in" in result:
-                from datetime import datetime, timedelta, timezone
                 token_json["expires_at"] = (
                     datetime.now(timezone.utc) + timedelta(seconds=result["expires_in"])
                 ).isoformat()
             return result["access_token"]
 
-    # Fallback: check if existing token is still valid
-    from datetime import datetime, timezone
-    expires_at = token_json.get("expires_at")
+    # Fallback: the refresh attempt didn't return a usable token (or there
+    # was no refresh_token at all) — accept the existing access token only
+    # if it's still valid.
     if expires_at:
         try:
             expiry = datetime.fromisoformat(expires_at)
