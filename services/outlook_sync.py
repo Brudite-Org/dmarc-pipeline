@@ -31,6 +31,13 @@ GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 # Backfill: how many days to scan when connecting a new account
 BACKFILL_DAYS = int(os.environ.get("OUTLOOK_BACKFILL_DAYS", "30"))
 
+# Pagination: Graph returns at most $top messages per page. Follow
+# @odata.nextLink up to this many pages so reports beyond the first
+# page are not silently missed. (Each page is $top=50 messages, so the
+# default cap covers 500 messages per sync; already-seen messages cost
+# zero extra API calls thanks to the processed_emails check below.)
+MAX_PAGES = int(os.environ.get("OUTLOOK_SYNC_MAX_PAGES", "10"))
+
 
 async def sync_account_emails(account: dict, backfill: bool = False) -> int:
     """Sync DMARC emails for a single Outlook account.
@@ -87,12 +94,42 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             logger.error("[%s] Search failed: %s", email, response.text)
             return 0
 
-        messages = response.json().get("value", [])
+        # ── PAGINATED FETCH ──────────────────────────────────────────
+        # Graph caps each response at $top messages and exposes the rest
+        # via @odata.nextLink. Mailbox results come back newest-first,
+        # so stop early once a full page of already-processed messages
+        # is seen: older pages only contain older messages, all
+        # previously checked. Steady-state sync stays at 1 request
+        # while backfill on a busy mailbox walks as far back as needed.
+        messages: list = []
+        page = 0
+        page_resp = response
+        while True:
+            page += 1
+            if page_resp.status_code != 200:
+                logger.error("[%s] Page %d failed: %s", email, page, page_resp.text)
+                break
+            body = page_resp.json()
+            page_messages = body.get("value", [])
+            if not page_messages:
+                break
+            fresh = [m for m in page_messages if not is_processed(account_id, m["id"])]
+            messages.extend(fresh)
+            next_link = body.get("@odata.nextLink")
+            if not next_link or page >= MAX_PAGES:
+                break
+            if not fresh and not backfill:
+                break
+            page_resp = await client.get(next_link, headers=headers)
+
         if not messages:
-            logger.info("[%s] No emails to check (%s)", email, mode_label)
+            logger.info("[%s] No new emails to check (%s)", email, mode_label)
             return 0
 
-        logger.info("[%s] %s: checking %d email(s)", email, mode_label, len(messages))
+        logger.info(
+            "[%s] %s: checking %d new email(s) across %d page(s)",
+            email, mode_label, len(messages), page,
+        )
 
         saved = 0
         skipped = 0

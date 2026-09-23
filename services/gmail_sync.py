@@ -30,6 +30,13 @@ GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 QUERY = os.environ.get("GMAIL_QUERY", "has:attachment newer_than:30d")
 # Backfill: how many days to scan when connecting a new account
 BACKFILL_DAYS = int(os.environ.get("GMAIL_BACKFILL_DAYS", "30"))
+# Pagination: Gmail returns at most maxResults messages per page and exposes
+# the rest via nextPageToken. Follow it up to this many pages so reports
+# beyond the first page are not silently missed. (Each page is
+# maxResults=50 messages, so the default cap covers 500 messages per sync;
+# already-seen messages cost zero extra API calls thanks to the
+# processed_emails check below.)
+MAX_PAGES = int(os.environ.get("GMAIL_SYNC_MAX_PAGES", "10"))
 
 
 async def sync_account_emails(account: dict, backfill: bool = False) -> int:
@@ -59,24 +66,55 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
     async with httpx.AsyncClient(timeout=120.0) as client:
         # Search for emails (broad query — we verify with content)
         search_url = f"{GMAIL_API_BASE}/messages"
-        params = {"q": query, "maxResults": 50}
-        response = await client.get(search_url, headers=headers, params=params)
+        # ── PAGINATED LIST ───────────────────────────────────────────
+        # Gmail caps each response at maxResults messages and exposes the
+        # rest via nextPageToken. Results come back newest-first, so in
+        # steady-state (non-backfill) stop early once a full page of
+        # already-processed messages is seen: older pages only contain
+        # older messages, all previously checked. Steady-state sync stays
+        # at 1 request while backfill on a busy mailbox walks as far back
+        # as needed (bounded by MAX_PAGES).
+        account_id = account.get("id")
+        messages: list = []
+        page = 0
+        page_token: str | None = None
+        while True:
+            page += 1
+            params = {"q": query, "maxResults": 50}
+            if page_token:
+                params["pageToken"] = page_token
+            response = await client.get(search_url, headers=headers, params=params)
 
-        if response.status_code != 200:
-            logger.error("[%s] Search failed: %s", email, response.text)
-            return 0
+            if response.status_code != 200:
+                logger.error("[%s] Page %d failed: %s", email, page, response.text)
+                break
 
-        messages = response.json().get("messages", [])
+            body = response.json()
+            page_messages = body.get("messages", [])
+            if not page_messages:
+                break
+            fresh = [m for m in page_messages if not is_processed(account_id, m["id"])]
+            messages.extend(fresh)
+            page_token = body.get("nextPageToken")
+            if not page_token or page >= MAX_PAGES:
+                break
+            if not fresh and not backfill:
+                break
+
         if not messages:
-            logger.info("[%s] No emails to check (%s)", email, mode_label)
+            logger.info("[%s] No new emails to check (%s)", email, mode_label)
             return 0
 
-        logger.info("[%s] %s: checking %d email(s)", email, mode_label, len(messages))
+        logger.info(
+            "[%s] %s: checking %d new email(s) across %d page(s)",
+            email,
+            mode_label,
+            len(messages),
+            page,
+        )
 
         saved = 0
         skipped = 0
-
-        account_id = account.get("id")
 
         for msg_info in messages:
             msg_id = msg_info["id"]
