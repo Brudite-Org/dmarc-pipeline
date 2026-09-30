@@ -123,14 +123,13 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             if is_processed(account_id, msg_id):
                 continue
 
-            # Mark as processed (even if not a DMARC report — we checked it)
-            mark_processed(account_id, msg_id)
-
             # Get full message
             msg_url = f"{GMAIL_API_BASE}/messages/{msg_id}"
             msg_resp = await client.get(msg_url, headers=headers, params={"format": "full"})
 
             if msg_resp.status_code != 200:
+                # Not marked processed — retry on next sync
+                logger.warning("[%s] Failed to fetch message %s", email, msg_id)
                 continue
 
             msg = msg_resp.json()
@@ -145,7 +144,11 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             _find_attachments(msg.get("payload", {}), attachments)
 
             if not attachments:
+                mark_processed(account_id, msg_id)
                 continue
+
+            # Set when a download fails so the message is retried next sync
+            retry = False
 
             # Process each attachment
             for att_info in attachments:
@@ -167,11 +170,16 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
 
                 if att_resp.status_code != 200:
                     logger.warning("[%s] Failed to download %s", email, filename)
+                    retry = True
                     continue
 
                 # Decode base64url
                 att_data = att_resp.json().get("data", "")
-                file_bytes = base64.urlsafe_b64decode(att_data)
+                try:
+                    file_bytes = base64.urlsafe_b64decode(att_data + "=" * (-len(att_data) % 4))
+                except Exception:
+                    logger.warning("[%s] Failed to decode attachment: %s", email, filename)
+                    continue
 
                 # Write to temp file for content verification
                 suffix = Path(filename).suffix if Path(filename).suffix else ".bin"
@@ -224,6 +232,10 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
 
                 # Cleanup temp file
                 tmp_path.unlink(missing_ok=True)
+
+            # Mark as processed (even if not a DMARC report — we checked it)
+            if not retry:
+                mark_processed(account_id, msg_id)
 
         logger.info("[%s] Sync complete: %d saved, %d skipped", email, saved, skipped)
 

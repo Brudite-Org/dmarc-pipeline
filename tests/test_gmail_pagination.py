@@ -255,3 +255,57 @@ async def test_search_failure_returns_zero(account, patch_http, monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", FailClient)
     saved = await gmail_sync.sync_account_emails(account, backfill=False)
     assert saved == 0
+
+
+# ── Retry-on-failure (messages must not be marked processed on fetch errors) ──
+
+def _client_failing(msg_status=200, att_status=200):
+    class _C(FakeClient):
+        async def get(self, url, headers=None, params=None):
+            FakeClient.calls.append((url, dict(params or {})))
+            if "/attachments/" in url:
+                return FakeResponse(_att_body(), status=att_status)
+            if url == LIST_URL:
+                return FakeResponse(FakeClient.queue.pop(0))
+            msg_id = url.rsplit("/", 1)[-1]
+            return FakeResponse(_full_message(msg_id), status=msg_status)
+    return _C
+
+
+@pytest.mark.asyncio
+async def test_message_fetch_failure_is_retried(account, monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", _client_failing(msg_status=500))
+    _pages({"messages": [_list_entry("m-1")]})
+    saved = await gmail_sync.sync_account_emails(account, backfill=False)
+    assert saved == 0
+    assert "m-1" not in SEEN
+
+
+@pytest.mark.asyncio
+async def test_attachment_download_failure_is_retried(account, monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", _client_failing(att_status=500))
+    _pages({"messages": [_list_entry("m-2")]})
+    saved = await gmail_sync.sync_account_emails(account, backfill=False)
+    assert saved == 0
+    assert "m-2" not in SEEN
+
+
+@pytest.mark.asyncio
+async def test_successful_message_is_marked(account, patch_http):
+    _pages({"messages": [_list_entry("m-3")]})
+    saved = await gmail_sync.sync_account_emails(account, backfill=False)
+    assert saved == 1
+    assert "m-3" in SEEN
+
+
+@pytest.mark.asyncio
+async def test_bad_base64_does_not_crash_sync(account, monkeypatch):
+    class _C(FakeClient):
+        async def get(self, url, headers=None, params=None):
+            if "/attachments/" in url:
+                return FakeResponse({"data": "!!!not-base64!!!"})
+            return await FakeClient.get(self, url, headers, params)
+    monkeypatch.setattr(httpx, "AsyncClient", _C)
+    _pages({"messages": [_list_entry("m-4")]})
+    saved = await gmail_sync.sync_account_emails(account, backfill=False)
+    assert saved == 0

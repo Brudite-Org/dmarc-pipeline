@@ -237,3 +237,91 @@ async def test_search_failure_returns_zero(account, patch_http, monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", FailClient)
     saved = await outlook_sync.sync_account_emails(account, backfill=False)
     assert saved == 0
+
+
+# ── Ordering, large attachments, retry-on-failure ─────────────────────────────
+
+def _client_with(att_payload=None, att_status=200, raw_status=200, raw_body=b"fake-zip-bytes"):
+    """FakeClient variant with controllable attachment-list / $value behaviour."""
+
+    class _C(FakeClient):
+        async def get(self, url, headers=None, params=None):
+            FakeClient.calls.append(url)
+            _C.params.append(params)
+            if url.endswith("/$value"):
+                r = FakeResponse({}, status=raw_status)
+                r.content = raw_body
+                return r
+            if url.endswith("/attachments"):
+                return FakeResponse(att_payload if att_payload is not None else _att_page(),
+                                    status=att_status)
+            return FakeResponse(FakeClient.queue.pop(0))
+
+    _C.params = []
+    return _C
+
+
+def _large_att_page() -> dict:
+    return {"value": [{
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "id": "att-big",
+        "name": "google.com!x!20260920!20260921.zip",
+        # no contentBytes: Graph omits it for large attachments
+    }]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backfill", [False, True])
+async def test_list_query_is_ordered_newest_first(account, monkeypatch, backfill):
+    """Graph only guarantees newest-first with $orderby, and $orderby's
+    property must lead the $filter or Graph rejects it (InefficientFilter)."""
+    C = _client_with()
+    monkeypatch.setattr(httpx, "AsyncClient", C)
+    _pages({"value": []})
+    await outlook_sync.sync_account_emails(account, backfill=backfill)
+    params = C.params[0]
+    assert params["$orderby"] == "receivedDateTime desc"
+    assert params["$filter"].startswith("receivedDateTime ge ")
+    assert "hasAttachments eq true" in params["$filter"]
+
+
+@pytest.mark.asyncio
+async def test_large_attachment_downloaded_via_value(account, monkeypatch):
+    C = _client_with(att_payload=_large_att_page())
+    monkeypatch.setattr(httpx, "AsyncClient", C)
+    _pages({"value": [_msg("m-big")]})
+    saved = await outlook_sync.sync_account_emails(account, backfill=False)
+    assert saved == 1
+    assert any(c.endswith("/attachments/att-big/$value") for c in FakeClient.calls)
+    assert "m-big" in SEEN
+
+
+@pytest.mark.asyncio
+async def test_large_attachment_download_failure_is_retried(account, monkeypatch):
+    C = _client_with(att_payload=_large_att_page(), raw_status=500)
+    monkeypatch.setattr(httpx, "AsyncClient", C)
+    _pages({"value": [_msg("m-big")]})
+    saved = await outlook_sync.sync_account_emails(account, backfill=False)
+    assert saved == 0
+    assert "m-big" not in SEEN  # stays unprocessed → retried next sync
+
+
+@pytest.mark.asyncio
+async def test_attachment_list_failure_is_retried(account, monkeypatch):
+    C = _client_with(att_status=503)
+    monkeypatch.setattr(httpx, "AsyncClient", C)
+    _pages({"value": [_msg("m-x")]})
+    await outlook_sync.sync_account_emails(account, backfill=False)
+    assert "m-x" not in SEEN
+
+
+@pytest.mark.asyncio
+async def test_message_without_report_attachment_is_marked(account, monkeypatch):
+    pdf = {"value": [{"@odata.type": "#microsoft.graph.fileAttachment",
+                      "id": "a", "name": "invoice.pdf", "contentBytes": "eA=="}]}
+    C = _client_with(att_payload=pdf)
+    monkeypatch.setattr(httpx, "AsyncClient", C)
+    _pages({"value": [_msg("m-pdf")]})
+    saved = await outlook_sync.sync_account_emails(account, backfill=False)
+    assert saved == 0
+    assert "m-pdf" in SEEN

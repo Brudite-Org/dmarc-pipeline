@@ -75,14 +75,20 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             from datetime import datetime, timedelta, timezone
             cutoff = (datetime.now(timezone.utc) - timedelta(days=BACKFILL_DAYS)).isoformat()
             params = {
-                "$filter": f"hasAttachments eq true and receivedDateTime ge {cutoff}",
+                "$filter": f"receivedDateTime ge {cutoff} and hasAttachments eq true",
+                "$orderby": "receivedDateTime desc",
                 "$top": 50,
                 "$select": "id,subject,from,receivedDateTime,hasAttachments",
             }
             mode_label = "backfill"
         else:
+            # Graph does NOT return newest-first by default with $filter, and
+            # $orderby properties must also appear in $filter (first), else
+            # it errors with InefficientFilter. The dummy lower bound
+            # satisfies that so the early-stop below is safe.
             params = {
-                "$filter": "hasAttachments eq true",
+                "$filter": "receivedDateTime ge 1900-01-01T00:00:00Z and hasAttachments eq true",
+                "$orderby": "receivedDateTime desc",
                 "$top": 50,
                 "$select": "id,subject,from,receivedDateTime,hasAttachments",
             }
@@ -141,9 +147,6 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             if is_processed(account_id, msg_id):
                 continue
 
-            # Mark as processed (even if not a DMARC report — we checked it)
-            mark_processed(account_id, msg_id)
-
             # Extract metadata
             subject = msg_info.get("subject", "")
             sender_info = msg_info.get("from", {}).get("emailAddress", {})
@@ -154,6 +157,7 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             att_response = await client.get(attachments_url, headers=headers)
 
             if att_response.status_code != 200:
+                # Not marked processed — retry on next sync
                 logger.warning("[%s] Failed to get attachments for %s", email, msg_id)
                 continue
 
@@ -170,23 +174,35 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
             ]
 
             if not file_attachments:
+                mark_processed(account_id, msg_id)
                 continue
+
+            # Set when an attachment download fails so the message is
+            # retried next sync instead of being silently dropped
+            retry = False
 
             # Process each attachment
             for att in file_attachments:
                 filename = att.get("name", "")
                 content_bytes = att.get("contentBytes", "")
 
-                if not content_bytes:
-                    continue
-
-                # Decode base64 content
                 import base64
-                try:
-                    file_bytes = base64.b64decode(content_bytes)
-                except Exception:
-                    logger.warning("[%s] Failed to decode attachment: %s", email, filename)
-                    continue
+                if content_bytes:
+                    try:
+                        file_bytes = base64.b64decode(content_bytes)
+                    except Exception:
+                        logger.warning("[%s] Failed to decode attachment: %s", email, filename)
+                        continue
+                else:
+                    # Graph omits contentBytes from the list response for
+                    # large attachments — download the raw bytes directly.
+                    raw_url = f"{attachments_url}/{att['id']}/$value"
+                    raw_resp = await client.get(raw_url, headers=headers)
+                    if raw_resp.status_code != 200 or not raw_resp.content:
+                        logger.warning("[%s] Failed to download %s", email, filename)
+                        retry = True
+                        continue
+                    file_bytes = raw_resp.content
 
                 # Write to temp file for content verification
                 suffix = Path(filename).suffix if Path(filename).suffix else ".bin"
@@ -239,6 +255,10 @@ async def sync_account_emails(account: dict, backfill: bool = False) -> int:
 
                 # Cleanup temp file
                 tmp_path.unlink(missing_ok=True)
+
+            # Mark as processed (even if not a DMARC report — we checked it)
+            if not retry:
+                mark_processed(account_id, msg_id)
 
         logger.info("[%s] Sync complete: %d saved, %d skipped", email, saved, skipped)
 
