@@ -1,4 +1,4 @@
-"""Discord notifier — posts DMARC report summaries to a Discord channel.
+"""Discord notifier — posts DMARC report summaries and failure details to a Discord channel.
 
 Uses Discord incoming webhooks for simple, bot-free integration.
 Rich embeds with color-coded pass/fail status.
@@ -22,6 +22,7 @@ from typing import Optional
 import httpx
 
 from config import settings
+from services.discord_failures import batch_embeds, build_failure_embeds
 
 logger = logging.getLogger("dmarc.discord")
 
@@ -75,11 +76,15 @@ def post_discord_summary(report_id: int) -> bool:
         # Fetch records
         records = select("dmarc_records", filters={"report_id": report_id})
 
-        # Build embed
-        embed = _build_embed(report, records)
+        # One message: the summary embed followed by one embed per failing sender.
+        # Only if Discord's per-message limits are exceeded does the rest spill
+        # into follow-up messages.
+        embeds = [_build_embed(report, records), *build_failure_embeds(report, records)]
+        sent = True
+        for batch in batch_embeds(embeds):
+            sent = _send_webhook({"embeds": batch}) and sent
 
-        # Send to Discord
-        return _send_webhook(embed)
+        return sent
 
     except Exception as exc:
         logger.error("Failed to post Discord summary for report %d: %s", report_id, exc)
@@ -250,9 +255,12 @@ def _send_webhook(embed: dict | dict) -> bool:
         True if successful.
     """
     if "embeds" in embed:
-        payload = embed
+        payload = dict(embed)
     else:
         payload = {"embeds": [embed]}
+
+    # Report XML is third-party data; never let it ping @everyone/@here/roles/users.
+    payload["allowed_mentions"] = {"parse": []}
 
     try:
         response = httpx.post(
