@@ -500,7 +500,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .auth-entry-row { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-2); font-family: var(--font-mono); font-size: 12px; padding: 2px 0; word-break: break-all; }
 .auth-entry-key { color: var(--text-muted); flex-shrink: 0; }
 
-.record-card .detail-item { background: transparent; padding: 0; }
+.record-card .detail-item { background: transparent; padding: 0; box-shadow: none; }
 .detail-value.mono { font-family: var(--font-mono); }
 .detail-value.large { font-size: 20px; font-weight: 700; }
 
