@@ -20,9 +20,31 @@
 
   <div class="container">
     <!-- ── Breadcrumb ──────────────────────────────────────────────────────── -->
-    <div style="margin-bottom: var(--sp-4); font-family: var(--font-utility); font-size: 12px; color: var(--muted);">
-      <a href="/" style="color: var(--muted);">Dashboard</a> → <span id="detail-filename">…</span>
+    <div class="detail-breadcrumb">
+      <a href="/">Dashboard</a> → <span id="detail-filename">…</span>
     </div>
+
+    <!-- ── Summary strip ───────────────────────────────────────────────────── -->
+    <section class="card">
+      <div class="card-header">
+        <div class="card-title">Summary</div>
+        <span id="detail-health-badge" class="badge">–</span>
+      </div>
+      <div class="card-body">
+        <div id="summary-grid"></div>
+      </div>
+    </section>
+
+    <!-- ── Failures & issues (why each failing sender failed) ──────────────── -->
+    <section class="card" id="failures-card">
+      <div class="card-header">
+        <div class="card-title">Failures &amp; issues</div>
+        <span id="failures-badge" class="badge">–</span>
+      </div>
+      <div class="card-body">
+        <div id="failures-container"></div>
+      </div>
+    </section>
 
     <!-- ── Report metadata ─────────────────────────────────────────────────── -->
     <section class="card">
@@ -31,7 +53,7 @@
         <span id="detail-org" class="badge info"></span>
       </div>
       <div class="card-body">
-        <div class="detail-grid" id="metadata-grid"></div>
+        <div id="metadata-grid"></div>
       </div>
     </section>
 
@@ -41,26 +63,37 @@
         <div class="card-title">Policy published</div>
       </div>
       <div class="card-body">
-        <div class="detail-grid" id="policy-grid"></div>
+        <div id="policy-grid"></div>
       </div>
     </section>
 
     <!-- ── Authentication alignment summary ─────────────────────────────────── -->
     <section class="card">
       <div class="card-header">
-        <div class="card-title">Authentication alignment</div>
-        <span id="detail-health-badge" class="badge">–</span>
+        <div class="card-title">Authentication alignment (by record)</div>
       </div>
       <div class="card-body">
         <div id="alignment-summary"></div>
       </div>
     </section>
 
-    <!-- ── Records (every single one, fully expanded) ──────────────────────── -->
+    <!-- ── Records (every single one, fully detailed) ──────────────────────── -->
     <section class="card">
       <div class="card-header">
         <div class="card-title">All records</div>
         <span id="detail-record-count" class="badge info">0 records</span>
+      </div>
+      <div class="records-toolbar">
+        <div class="records-filter" role="group" aria-label="Filter records">
+          <button type="button" class="filter-btn active" data-filter="all">All</button>
+          <button type="button" class="filter-btn" data-filter="fail">Failed</button>
+          <button type="button" class="filter-btn" data-filter="issue">Any issue</button>
+          <button type="button" class="filter-btn" data-filter="pass">Passed</button>
+        </div>
+        <div class="records-toolbar-actions">
+          <button type="button" class="filter-btn" id="expand-all">Expand all</button>
+          <button type="button" class="filter-btn" id="collapse-all">Collapse all</button>
+        </div>
       </div>
       <div id="records-container"></div>
     </section>
