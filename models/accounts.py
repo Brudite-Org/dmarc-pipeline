@@ -84,13 +84,23 @@ OUTLOOK_TABLE = "outlook_accounts"
 
 
 def add_outlook_account(email: str, credentials: dict, token: dict) -> dict:
-    """Store a new Outlook account with OAuth tokens."""
+    """Store an Outlook account with OAuth tokens, or refresh it if it already exists.
+
+    `email` is unique in the table, so a reconnect (including of a deactivated
+    account) updates the existing row and reactivates it instead of inserting.
+    """
     data = {
         "email": email,
         "credentials_json": credentials,
         "token_json": token,
         "is_active": True,
     }
+    existing = select(OUTLOOK_TABLE, filters={"email": email}, limit=1)
+    if existing:
+        account_id = existing[0]["id"]
+        update(OUTLOOK_TABLE, account_id, data)
+        logger.info("Reconnected existing Outlook account: %s", email)
+        return {**existing[0], **data}
     result = insert(OUTLOOK_TABLE, data)
     logger.info("Added Outlook account: %s", email)
     return result[0] if result else {}
